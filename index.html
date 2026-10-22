@@ -530,7 +530,7 @@ async function run(i){
    if(candidate!==null){
     const b=document.createElement('button');b.type='button';
     b.textContent=candidate+' を採用';
-    b.onclick=()=>{const field=target(a,i);if(field){field.value=candidate;row.append(' → 入力済み')}};
+    b.onclick=()=>{const field=target(a,i);if(field){field.value=candidate;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));row.append(' → 入力済み');document.getElementById('v15-review')?.click()}else{row.append(' → 入力先が見つかりません')}};
     row.appendChild(b);
    }else row.append(' 認識できませんでした。画像を見て手入力してください。');
    out.appendChild(row);
@@ -556,7 +556,7 @@ const $=id=>document.getElementById(id);
 const host=$('v11-cards');
 if(!host||!$('turn'))return;
 const p=document.createElement('div');p.className='panel';
-p.innerHTML=`<h2>Ver.1.5 5種類まとめてOCR</h2>
+p.innerHTML=`<h2>Ver.1.5.1 OCR反映修正版</h2>
 <p class="hint">各練習に対応するスクショを選択した後、一括OCRを実行します。候補値は自動採用しません。各画像の切り出し結果を見て正しい値だけ「採用」し、最後に毎ターン比較へ反映してください。</p>
 <button class="primary" id="v15-bulk">5種類を順番にOCR</button>
 <button id="v15-review">入力内容を確認</button>
@@ -595,6 +595,7 @@ $('v15-bulk').onclick=async()=>{
   review();
  }finally{running=false;$('v15-bulk').disabled=false}
 };
+host.addEventListener('input',()=>review());
 $('v15-review').onclick=()=>{review();$('v15-status').textContent='確認表を更新しました。0の値も画像と照合してください。'};
 $('v15-import').onclick=()=>{
  const count=review();
