@@ -28,4 +28,73 @@ const trains=['スピード','スタミナ','パワー','根性','賢さ'];$('tr
 $('judge').onclick=()=>{let energy=Math.max(0,Math.min(100,Number($('energy').value)||0));let remaining=Math.max(1,Number($('remaining').value)||1);let out=trains.map(t=>{let gain=Math.max(0,Number($('gain-'+t).value)||0),risk=Math.max(0,Math.min(100,Number($('risk-'+t).value)||0));return {t,gain,risk,score:gain*(1-risk/100)}}).sort((a,b)=>b.score-a.score);let best=out[0];$('turnout').innerHTML=`<h3>暫定比較</h3><p>最大期待上昇量：<b>${best.t}</b>（${best.score.toFixed(1)}）</p>`+out.map(x=>`<div class="result">${x.t}：上昇 ${x.gain} / 失敗率 ${x.risk}% / 単純期待値 ${x.score.toFixed(1)}</div>`).join('')+`<div class="warn">${energy<30?'体力が低いため休息・回復行動も比較してください。':'体力に余裕があっても、練習効果やシナリオギミックを確認してください。'} 残り${remaining}ターン。友情・ヒント・スキルPt・回復・失敗時損失は未計算です。</div>`};
 $('export').onclick=()=>{let blob=new Blob([JSON.stringify({version:2,saved},null,2)],{type:'application/json'});let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='uma-support-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)};
 $('import').onchange=async e=>{let file=e.target.files[0];if(!file)return;try{let j=JSON.parse(await file.text());if(j.version!==2||typeof j.saved!=='object')throw Error('形式が違います');saved=j.saved;save();cards();alert('復元しました')}catch(err){alert('読み込み失敗: '+err.message)}};cards();
-</script><script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(console.warn));}</script></body></html>
+</script><script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(console.warn));}</script>
+<script>
+/* Ver 0.5: transparent beam-search composition planner. No unverified game formula. */
+(()=>{
+const $=id=>document.getElementById(id);
+const target={短距離:{スピード:3,パワー:2,賢さ:2,根性:1},マイル:{スピード:3,パワー:2,賢さ:2,根性:1},中距離:{スピード:3,スタミナ:1,パワー:2,賢さ:2},長距離:{スピード:3,スタミナ:3,パワー:1,賢さ:2},ダート:{スピード:3,パワー:2,賢さ:2,スタミナ:1}};
+const root=$('build');
+const pane=document.createElement('div');
+pane.className='panel';
+pane.innerHTML=`<h2>Ver.0.5 編成比較エンジン</h2>
+<p class="hint">確認済みカードの組み合わせを比較。ゲーム内部の正確な育成式ではなく、入力した公開性能値とタイプ構成を使う<b>独自の暫定スコア</b>です。勝率・評価点を予測するものではありません。</p>
+<div class="flex"><label>レンタルカード名 <input id="rental-name" placeholder="任意"></label>
+<label>タイプ <select id="rental-type"><option value="">選択しない</option>${TYPES.slice(1).map(t=>`<option>${t}</option>`).join('')}</select></label>
+<label>凸数 <select id="rental-limit">${[0,1,2,3,4].map(n=>`<option value="${n}" ${n===4?'selected':''}>${n}凸</option>`).join('')}</select></label></div>
+<div class="flex"><label>友情% <input id="rental-friendship" type="number" min="0" max="200" placeholder="不明"></label>
+<label>練習効果% <input id="rental-training" type="number" min="0" max="100" placeholder="不明"></label>
+<label>得意率 <input id="rental-specialty" type="number" min="0" max="200" placeholder="不明"></label>
+<label>スキル適合(0-5) <input id="rental-skill" type="number" min="0" max="5" placeholder="不明"></label></div>
+<div class="flex"><button id="v05-run" class="primary">上位3編成を比較</button></div><div id="v05-results"></div>`;
+root.appendChild(pane);
+function val(id){const x=$(id).value;return x===''?null:Number(x)}
+function scoreSet(items,weights,goal){
+ const count={};let pts=0,known=0;
+ for(const c of items){let s=c.s,t=s.type;count[t]=(count[t]||0)+1;
+ const wanted=weights[t]||0;
+ pts+=wanted*2.8-2.1*Math.max(0,count[t]-1)-1.3*Math.max(0,count[t]-3);
+ pts+=Number(s.limit||0)*0.18;
+ for(const [key,mul] of [['friendship',.018],['training',.09],['specialty',.011],['skill',goal==='race'?.8:.35]]){
+  if(s[key]!==''&&s[key]!=null&&Number.isFinite(Number(s[key]))){pts+=Number(s[key])*mul;known++}
+ }
+ }
+ const types=Object.keys(count).length;
+ pts+=Math.min(types,4)*.65;
+ return {pts,known,types};
+}
+$('v05-run').onclick=()=>{
+ const unique=new Map();
+ for(const a of RAW){const s=saved[a.id];if(!s?.confirmed||!s.name?.trim()||!TYPES.slice(1).includes(s.type))continue;
+ const key=s.name.trim();if(!unique.has(key)||Number(s.limit)>Number(unique.get(key).s.limit))unique.set(key,{a,s});}
+ let pool=[...unique.values()];
+ const rentalType=$('rental-type').value,rentalName=$('rental-name').value.trim();
+ const useRental=$('friend').checked&&rentalType&&rentalName;
+ const rental=useRental?{a:{id:'rental'},s:{name:rentalName,type:rentalType,limit:val('rental-limit'),friendship:val('rental-friendship'),training:val('rental-training'),specialty:val('rental-specialty'),skill:val('rental-skill')}}:null;
+ const slots=$('friend').checked?5:6;
+ if(pool.length<slots){$('v05-results').innerHTML=`<div class="warn">確認済みカードが${pool.length}枚。${slots}枚以上を登録してから比較してください。</div>`;return}
+ const goal=$('goal').value,dist=$('distance').value,weights={...target[dist]};
+ if(goal==='rating'){weights.スピード+=1;weights.根性=(weights.根性||0)+1}
+ else if(goal==='race'){weights.賢さ+=1;weights.パワー+=1}
+ // Keep the best 60 partial candidates per depth. This is an approximate search, not exhaustive.
+ let beams=[{cards:[],last:-1,score:0}];
+ for(let depth=0;depth<slots;depth++){
+  const next=[];
+  for(const b of beams)for(let i=b.last+1;i<pool.length;i++){
+   const cards=b.cards.concat(pool[i]);
+   const sc=scoreSet(cards,weights,goal).pts;
+   next.push({cards,last:i,score:sc});
+  }
+  next.sort((a,b)=>b.score-a.score);
+  beams=next.slice(0,Math.max(60,Math.min(250,Math.floor(12000/Math.max(1,pool.length)))));
+ }
+ let ranked=beams.map(b=>{const cards=rental?b.cards.concat(rental):b.cards;return {cards,...scoreSet(cards,weights,goal)}});
+ ranked.sort((a,b)=>b.pts-a.pts);
+ const top=ranked.slice(0,3);
+ $('v05-results').innerHTML=`<p class="hint">比較対象：確認済み${pool.length}種類 / ${slots}枚編成${rental?'＋レンタル1枚':''}。探索は上位候補を残す近似方式です。未入力性能は0点加点ではなく「不明」のため、比較の信頼性が下がります。</p>`+
+ top.map((b,i)=>`<div class="result"><b>候補${i+1}：参考スコア ${b.pts.toFixed(1)}</b><div class="small">性能入力済み項目 ${b.known}/${b.cards.length*4}・タイプ数 ${b.types}</div>${b.cards.map(c=>`<div>${escapeHTML(c.s.name)} / ${escapeHTML(c.s.type)} / ${Number(c.s.limit)||0}凸${c.a.id==='rental'?'（レンタル）':''}</div>`).join('')}</div>`).join('')+
+ `<div class="warn">この点数は編成候補を並べるための独自指標で、ゲームの評価点・勝率・期待ステータスではありません。シナリオ固有の計算式とスキル発動率は未対応です。</div>`;
+};
+})();
+</script>
+</body></html>
