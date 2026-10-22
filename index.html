@@ -450,81 +450,100 @@ types.forEach((name,i)=>{
 })();
 </script>
 <script>
-/* v1.3 experimental fixed-layout crop OCR, with review before import */
+/* v1.4: conservative OCR for orange gain overlays, review required */
 (()=>{
-const el=id=>document.getElementById(id);
-if(!el('v11-cards'))return;
+const $=id=>document.getElementById(id);
+if(!$('v11-cards'))return;
+const kinds=['スピード','スタミナ','パワー','根性','賢さ'];
 const areas=[
- {key:'stat-0',name:'スピード',x:.025,y:.655,w:.17,h:.035},
- {key:'stat-1',name:'スタミナ',x:.185,y:.655,w:.17,h:.035},
- {key:'stat-2',name:'パワー',x:.35,y:.655,w:.17,h:.035},
- {key:'stat-3',name:'根性',x:.515,y:.655,w:.17,h:.035},
- {key:'stat-4',name:'賢さ',x:.685,y:.655,w:.14,h:.035},
- {key:'skill',name:'スキルPt',x:.82,y:.655,w:.17,h:.035},
- {key:'fail',name:'失敗率',x:.21,y:.72,w:.61,h:.038}
+ {key:'stat-0',name:'スピード',x:.015,y:.640,w:.165,h:.035},
+ {key:'stat-1',name:'スタミナ',x:.175,y:.640,w:.165,h:.035},
+ {key:'stat-2',name:'パワー',x:.340,y:.640,w:.165,h:.035},
+ {key:'stat-3',name:'根性',x:.505,y:.640,w:.165,h:.035},
+ {key:'stat-4',name:'賢さ',x:.670,y:.640,w:.150,h:.035},
+ {key:'skill',name:'スキルPt',x:.825,y:.640,w:.165,h:.035},
+ {key:'fail',name:'失敗率',x:.205,y:.715,w:.62,h:.04}
 ];
-const memo=document.createElement('div');memo.className='hint';memo.textContent='Ver.1.3：固定位置の数字切り出しOCR（実験版）。ウマ娘の縦長スクショ向け。アニメーションや端末解像度により位置がずれることがあります。';
-el('v11-cards').parentNode.insertBefore(memo,el('v11-cards'));
-let loadPromise;
-function load(){
- if(window.Tesseract)return Promise.resolve();
- if(loadPromise)return loadPromise;
- loadPromise=new Promise((resolve,reject)=>{
+const info=document.createElement('p');info.className='hint';
+info.textContent='Ver.1.4：オレンジ色の上昇値を優先して読み取ります。OCR結果は自動入力せず、切り出し画像を確認して「採用」を押した値だけ反映します。端末や表示条件で位置がずれることがあります。';
+$('v11-cards').parentNode.insertBefore(info,$('v11-cards'));
+let loading;
+async function lib(){
+ if(window.Tesseract)return;
+ if(!loading)loading=new Promise((ok,no)=>{
   const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-  sc.onload=()=>window.Tesseract?resolve():reject(new Error('OCR読み込み不可'));
-  sc.onerror=()=>reject(new Error('OCRライブラリの取得に失敗'));document.head.appendChild(sc);
- }).catch(e=>{loadPromise=null;throw e});return loadPromise;
+  sc.onload=()=>window.Tesseract?ok():no(new Error('OCRライブラリが使えません'));
+  sc.onerror=()=>no(new Error('OCRライブラリの取得に失敗'));
+  document.head.appendChild(sc);
+ }).catch(e=>{loading=null;throw e});
+ await loading;
 }
-function crop(image,area){
- const w=image.naturalWidth,h=image.naturalHeight;
- const canvas=document.createElement('canvas');const scale=5;
- canvas.width=Math.max(1,Math.round(w*area.w*scale));canvas.height=Math.max(1,Math.round(h*area.h*scale));
- const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled=false;
- ctx.drawImage(image,Math.round(w*area.x),Math.round(h*area.y),Math.round(w*area.w),Math.round(h*area.h),0,0,canvas.width,canvas.height);
- const im=ctx.getImageData(0,0,canvas.width,canvas.height);
- // Contrast boosting, preserving dark glyphs and colored text rather than binary threshold.
- for(let i=0;i<im.data.length;i+=4){const r=im.data[i],g=im.data[i+1],b=im.data[i+2];const gray=.299*r+.587*g+.114*b;const v=Math.max(0,Math.min(255,(gray-128)*1.7+128));im.data[i]=im.data[i+1]=im.data[i+2]=v;}
- ctx.putImageData(im,0,0);return canvas;
+function cut(img,a,mode){
+ const c=document.createElement('canvas'),factor=4;
+ const w=img.naturalWidth,h=img.naturalHeight;
+ c.width=Math.round(w*a.w*factor);c.height=Math.round(h*a.h*factor);
+ const ctx=c.getContext('2d',{willReadFrequently:true});
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+ ctx.drawImage(img,Math.round(w*a.x),Math.round(h*a.y),Math.round(w*a.w),Math.round(h*a.h),0,0,c.width,c.height);
+ if(mode==='orange'){
+  const d=ctx.getImageData(0,0,c.width,c.height);
+  for(let p=0;p<d.data.length;p+=4){
+   const r=d.data[p],g=d.data[p+1],b=d.data[p+2];
+   // Orange/yellow numbers are visually distinct from the purple +1 effects.
+   const orange=r>120 && r>g*1.10 && g>b*1.20 && (r-b)>75;
+   const v=orange?0:255;
+   d.data[p]=d.data[p+1]=d.data[p+2]=v;
+  }
+  ctx.putImageData(d,0,0);
+ }
+ return c;
+}
+function parse(t,a){
+ const m=String(t||'').replace(/\s/g,'').match(/\+?(\d{1,3})/);
+ if(!m)return null;
+ const n=Number(m[1]);
+ return Number.isInteger(n)&&n>=0&&n<=(a.key==='fail'?100:99)?n:null;
+}
+function target(a,i){
+ return $('v11-'+(a.key.startsWith('stat-')?'stat-'+i+'-'+a.key.slice(5):a.key+'-'+i));
 }
 async function run(i){
- const msg=el('v13-message-'+i),btn=el('v13-button-'+i),preview=el('v11-preview-'+i)?.querySelector('img');
- if(!preview){msg.textContent='先にこの練習の画像を選択してください。';return}
- btn.disabled=true;let worker;
+ const msg=$('v14-message-'+i),button=$('v14-button-'+i),img=$('v11-preview-'+i)?.querySelector('img');
+ if(!img){msg.textContent='先に画像を選択してください';return}
+ button.disabled=true;let worker;
  try{
-  msg.textContent='OCRを準備しています…';await load();
+  msg.textContent='OCRを準備しています…';await lib();
+  if(!img.complete)await img.decode();
   worker=await window.Tesseract.createWorker('eng',1,{logger:m=>{if(m.status)msg.textContent=m.status+' '+Math.round((m.progress||0)*100)+'%'}});
-  await worker.setParameters({tessedit_char_whitelist:'0123456789+% ',tessedit_pageseg_mode:'7'});
-  const rows=[];let filled=0;
+  await worker.setParameters({tessedit_char_whitelist:'0123456789+%',tessedit_pageseg_mode:'7'});
+  const out=$('v14-results-'+i);out.replaceChildren();
   for(const a of areas){
-   const c=crop(preview,a);const r=await worker.recognize(c);const raw=(r.data?.text||'').trim();
-   const candidates=[...raw.matchAll(/\d{1,3}/g)].map(m=>Number(m[0]));
-   const value=candidates.find(n=>n>=0&&(a.key==='fail'?n<=100:n<=999));
-   rows.push({area:a,raw,value,canvas:c});
+   const mode=a.key==='fail'?'normal':'orange';
+   const canvas=cut(img,a,mode);
+   const result=await worker.recognize(canvas);
+   const raw=(result.data?.text||'').trim(),candidate=parse(raw,a);
+   const row=document.createElement('div');row.style.cssText='border-bottom:1px solid #555;padding:8px 0';
+   const title=document.createElement('div');title.textContent=a.name+'：OCR「'+(raw||'検出なし')+'」';
+   row.appendChild(title);
+   canvas.style.cssText='width:180px;max-width:100%;height:auto;image-rendering:pixelated;display:block';
+   row.appendChild(canvas);
+   if(candidate!==null){
+    const b=document.createElement('button');b.type='button';
+    b.textContent=candidate+' を採用';
+    b.onclick=()=>{const field=target(a,i);if(field){field.value=candidate;row.append(' → 入力済み')}};
+    row.appendChild(b);
+   }else row.append(' 認識できませんでした。画像を見て手入力してください。');
+   out.appendChild(row);
   }
-  const detail=el('v13-detail-'+i);detail.innerHTML='';
-  for(const r of rows){
-   const line=document.createElement('div');line.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0';
-   const name=document.createElement('span');name.textContent=r.area.name+'：';line.appendChild(name);
-   r.canvas.style.cssText='max-width:150px;max-height:55px;object-fit:contain';line.appendChild(r.canvas);
-   const input=document.createElement('span');input.textContent='OCR「'+(r.raw||'検出なし')+'」';line.appendChild(input);
-   if(r.value!==undefined){
-    // Never overwrite existing nonzero manually entered values.
-    const target=el('v11-'+r.area.key+'-'+i)||el('v11-'+r.area.key.replace('stat-','stat-'+i+'-'));
-    const id=r.area.key.startsWith('stat-')?'v11-stat-'+i+'-'+r.area.key.slice(5):'v11-'+r.area.key+'-'+i;
-    const field=el(id);
-    if(field&&Number(field.value)===0){field.value=r.value;filled++}
-   }
-   detail.appendChild(line);
-  }
-  msg.textContent='OCR終了：'+filled+'項目を仮入力。必ず画像と切り出し結果を照合して修正してください。';
- }catch(e){msg.textContent='OCRに失敗しました：'+String(e.message||e)+'。手入力は引き続き可能です。'}
- finally{if(worker)try{await worker.terminate()}catch(e){}btn.disabled=false}
+  msg.textContent='読み取り終了。結果を確認し、正しい数値だけ「採用」を押してください。紫色の+1は通常の上昇値に含めません。';
+ }catch(e){msg.textContent='OCRエラー：'+String(e?.message||e)}
+ finally{if(worker)try{await worker.terminate()}catch(e){}button.disabled=false}
 }
 for(let i=0;i<5;i++){
- const card=el('v11-card-'+i);if(!card)continue;
- const block=document.createElement('div');
- block.innerHTML='<button type="button" id="v13-button-'+i+'">数字の部分だけOCR（Ver.1.3）</button><div class="hint" id="v13-message-'+i+'">画像を選んでから押してください</div><details><summary>切り出し画像と認識結果を確認</summary><div id="v13-detail-'+i+'"></div></details>';
- card.appendChild(block);el('v13-button-'+i).onclick=()=>run(i);
+ const card=$('v11-card-'+i);if(!card)continue;
+ const div=document.createElement('div');
+ div.innerHTML='<button type="button" id="v14-button-'+i+'">オレンジ数字をOCR（Ver.1.4）</button><div class="hint" id="v14-message-'+i+'">スクショを選んでください</div><details open><summary>OCR候補と切り出し画像</summary><div id="v14-results-'+i+'"></div></details>';
+ card.appendChild(div);$('v14-button-'+i).onclick=()=>run(i);
 }
 })();
 </script>
