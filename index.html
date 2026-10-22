@@ -331,7 +331,7 @@ panel.innerHTML=`<h2>Ver.1.1 スクショ読み取りアシスタント</h2>
 <button class="primary" id="v11-import">確認した値を毎ターン比較に反映</button><div id="v11-result"></div>`;
 q('turn').appendChild(panel);
 const state=names.map(()=>({stat:[0,0,0,0,0],skill:0,fail:0,energy:null,filename:'',url:null,detected:''}));
-
+const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const row=(i)=>`<div class="result" id="v11-card-${i}"><h3>${names[i]}</h3><div id="v11-preview-${i}"></div><label>画像 <input type="file" accept="image/*" id="v11-file-${i}"></label><div class="flex">${names.map((n,j)=>`<label>${n} +<input id="v11-stat-${i}-${j}" type="number" min="0" max="999" value="0" style="width:65px"></label>`).join('')}</div><div class="flex"><label>スキルPt +<input id="v11-skill-${i}" type="number" min="0" max="999" value="0"></label><label>失敗率 %<input id="v11-fail-${i}" type="number" min="0" max="100" value="0"></label><label>体力（現在値）<input id="v11-energy-${i}" type="number" min="0" max="150" placeholder="未確認"></label></div><div class="hint" id="v11-note-${i}">画像を選択してください</div></div>`;
 q('v11-cards').innerHTML=names.map((_,i)=>row(i)).join('');
 async function assign(file,i){
