@@ -37,7 +37,7 @@ const target={短距離:{スピード:3,パワー:2,賢さ:2,根性:1},マイル
 const root=$('build');
 const pane=document.createElement('div');
 pane.className='panel';
-pane.innerHTML=`<h2>Ver.0.5 編成比較エンジン</h2>
+pane.innerHTML=`<h2>Ver.0.6 編成比較エンジン</h2>
 <p class="hint">確認済みカードの組み合わせを比較。ゲーム内部の正確な育成式ではなく、入力した公開性能値とタイプ構成を使う<b>独自の暫定スコア</b>です。勝率・評価点を予測するものではありません。</p>
 <div class="flex"><label>レンタルカード名 <input id="rental-name" placeholder="任意"></label>
 <label>タイプ <select id="rental-type"><option value="">選択しない</option>${TYPES.slice(1).map(t=>`<option>${t}</option>`).join('')}</select></label>
@@ -97,4 +97,19 @@ $('v05-run').onclick=()=>{
 };
 })();
 </script>
-</body></html>
+<script>
+/* v0.6: image similarity suggestions and validated CSV transfer, all local/offline */
+(()=>{
+ const area=document.createElement('div');area.className='panel';
+ area.innerHTML=`<h2>Ver.0.6 サポカ照合補助</h2><p class="hint">登録済みの画像候補200件について、画像の見た目が近い候補を端末内で比較します。カード名や凸数をAIで確定する機能ではありません。似たカード・別衣装・画像の重複は必ず目視確認してください。</p><button id="v06-sim" class="primary">似た画像を探す</button><div id="v06-simout"></div><h3>カード性能データの一括登録</h3><p class="hint">CSVでカード名・タイプ・凸数・友情ボーナス・練習効果・得意率・スキル適合をまとめて登録。空欄の性能は不明のまま保持します。CSVには画像を含みません。</p><div class="flex"><button id="v06-csv-export">CSVを書き出す</button><label>CSVを読み込む <input id="v06-csv-import" type="file" accept=".csv,text/csv"></label></div><div id="v06-csv-status" class="hint"></div>`;
+ document.getElementById('audit').appendChild(area);
+ const keys=['id','name','type','limit','confirmed','friendship','training','specialty','skill'];
+ const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';
+ const csvParse=text=>{const rows=[];let row=[],cell='',inside=false;for(let i=0;i<text.length;i++){const ch=text[i];if(inside){if(ch==='"'&&text[i+1]==='"'){cell+='"';i++}else if(ch==='"')inside=false;else cell+=ch}else if(ch==='"')inside=true;else if(ch===','){row.push(cell);cell=''}else if(ch==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell=''}else cell+=ch}if(inside)throw Error('CSVの引用符が閉じられていません');if(cell||row.length){row.push(cell);rows.push(row)}return rows};
+ document.getElementById('v06-csv-export').onclick=()=>{const lines=[keys.map(quote).join(',')];for(const a of RAW){const v=saved[a.id]||{};lines.push(keys.map(k=>quote(k==='id'?a.id:k==='confirmed'?v.confirmed?'true':'false':v[k]??'')).join(','))}const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const u=URL.createObjectURL(blob),link=document.createElement('a');link.href=u;link.download='uma-support-v06.csv';link.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+ document.getElementById('v06-csv-import').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;const status=document.getElementById('v06-csv-status');try{if(f.size>1000000)throw Error('CSVが大きすぎます');const rows=csvParse((await f.text()).replace(/^\ufeff/,''));const head=rows.shift();if(!head||!keys.every(k=>head.includes(k)))throw Error('必要な列がありません');const ids=new Set(RAW.map(a=>a.id)),changes={};let count=0;for(const row of rows){if(row.length===1&&!row[0])continue;const o=Object.fromEntries(head.map((h,i)=>[h,row[i]??'']));if(!ids.has(o.id))throw Error('不明なID: '+o.id);if(o.type&&!TYPES.includes(o.type))throw Error('タイプが不正: '+o.id);if(o.limit&&!/^[0-4]$/.test(o.limit))throw Error('凸数が不正: '+o.id);const n={};for(const k of keys.slice(1)){if(['limit','friendship','training','specialty','skill'].includes(k)){if(o[k]===''){n[k]='';continue}const value=Number(o[k]);const max={limit:4,friendship:200,training:100,specialty:200,skill:5}[k];if(!Number.isFinite(value)||value<0||value>max)throw Error(k+' が範囲外: '+o.id);n[k]=value}else if(k==='confirmed')n[k]=o[k]==='true';else n[k]=o[k].slice(0,150)}changes[o.id]=n;count++}if(!confirm(count+'件のCSVデータを登録情報に上書きします。続行しますか？'))return;for(const [id,n] of Object.entries(changes))saved[id]={...(saved[id]||{}),...n};save();cards();status.textContent=count+'件を読み込みました。'}catch(err){status.textContent='読み込み失敗: '+err.message}};
+ async function hash(src){return new Promise(resolve=>{const img=new Image();img.onload=()=>{try{const c=document.createElement('canvas');c.width=9;c.height=8;const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,0,0,9,8);const data=ctx.getImageData(0,0,9,8).data;let bits='';for(let y=0;y<8;y++)for(let x=0;x<8;x++){const a=(y*9+x)*4,b=a+4;const gray=i=>data[i]*.299+data[i+1]*.587+data[i+2]*.114;bits+=gray(a)>gray(b)?'1':'0'}resolve(bits)}catch{resolve(null)}};img.onerror=()=>resolve(null);img.src='data:image/webp;base64,'+src})}
+ const diff=(a,b)=>{let n=0;for(let i=0;i<a.length;i++)if(a[i]!==b[i])n++;return n};
+ document.getElementById('v06-sim').onclick=async()=>{const out=document.getElementById('v06-simout');out.textContent='画像を比較中…';const hashes=[];for(let i=0;i<RAW.length;i++)hashes.push(await hash(RAW[i].src));const pairs=[];for(let i=0;i<hashes.length;i++)for(let j=i+1;j<hashes.length;j++)if(hashes[i]&&hashes[j]){const d=diff(hashes[i],hashes[j]);if(d<=7)pairs.push({i,j,d})}pairs.sort((a,b)=>a.d-b.d);const shortlist=pairs.slice(0,30);out.innerHTML='<p class="hint">類似画像候補 '+pairs.length+'組。上位'+shortlist.length+'組を表示（距離が小さいほど似ています）。画像の近さは同一カードの証明ではありません。</p>'+shortlist.map(p=>`<div class="result"><div class="flex"><img style="width:55px;height:70px;object-fit:cover" src="data:image/webp;base64,${RAW[p.i].src}"><img style="width:55px;height:70px;object-fit:cover" src="data:image/webp;base64,${RAW[p.j].src}"><span>${RAW[p.i].id} / ${RAW[p.j].id}（差 ${p.d}）</span></div></div>`).join('');};
+})();
+</script></body></html>
