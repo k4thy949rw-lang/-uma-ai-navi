@@ -101,7 +101,7 @@ $('v05-run').onclick=()=>{
 /* v0.6: image similarity suggestions and validated CSV transfer, all local/offline */
 (()=>{
  const area=document.createElement('div');area.className='panel';
- area.innerHTML=`<h2>Ver.0.7 サポカ照合補助</h2><p class="hint">登録済みの画像候補200件について、画像の見た目が近い候補を端末内で比較します。カード名や凸数をAIで確定する機能ではありません。似たカード・別衣装・画像の重複は必ず目視確認してください。</p><button id="v06-sim" class="primary">似た画像を探す</button><div id="v06-simout"></div><h3>カード性能データの一括登録</h3><p class="hint">CSVでカード名・タイプ・凸数・友情ボーナス・練習効果・得意率・スキル適合をまとめて登録。空欄の性能は不明のまま保持します。CSVには画像を含みません。</p><div class="flex"><button id="v06-csv-export">CSVを書き出す</button><label>CSVを読み込む <input id="v06-csv-import" type="file" accept=".csv,text/csv"></label></div><div id="v06-csv-status" class="hint"></div>`;
+ area.innerHTML=`<h2>Ver.0.8 サポカ照合補助</h2><p class="hint">登録済みの画像候補200件について、画像の見た目が近い候補を端末内で比較します。カード名や凸数をAIで確定する機能ではありません。似たカード・別衣装・画像の重複は必ず目視確認してください。</p><button id="v06-sim" class="primary">似た画像を探す</button><div id="v06-simout"></div><h3>カード性能データの一括登録</h3><p class="hint">CSVでカード名・タイプ・凸数・友情ボーナス・練習効果・得意率・スキル適合をまとめて登録。空欄の性能は不明のまま保持します。CSVには画像を含みません。</p><div class="flex"><button id="v06-csv-export">CSVを書き出す</button><label>CSVを読み込む <input id="v06-csv-import" type="file" accept=".csv,text/csv"></label></div><div id="v06-csv-status" class="hint"></div>`;
  document.getElementById('audit').appendChild(area);
  const keys=['id','name','type','limit','confirmed','friendship','training','specialty','skill'];
  const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';
@@ -118,7 +118,7 @@ $('v05-run').onclick=()=>{
 (()=>{
  const area=document.getElementById('cards');
  const panel=document.createElement('div');panel.className='panel';
- panel.innerHTML=`<h2>Ver.0.7 サポカ照合アシスタント</h2><p class="hint">8枚のスクショから切り出した画像を1件ずつ拡大して確認。カード名と凸数の自動判定はまだありません。確定したデータは編成比較にそのまま反映されます。</p>
+ panel.innerHTML=`<h2>Ver.0.8 サポカ照合アシスタント</h2><p class="hint">8枚のスクショから切り出した画像を1件ずつ拡大して確認。カード名と凸数の自動判定はまだありません。確定したデータは編成比較にそのまま反映されます。</p>
  <div class="flex"><button id="review-prev">前へ</button><button id="review-next">次へ</button><button id="review-unchecked">未確認へ移動</button><span id="review-count"></span></div>
  <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:12px"><img id="review-image" alt="カード画像" style="width:150px;max-width:45%;border-radius:10px"><div style="flex:1;min-width:175px"><p id="review-location" class="hint"></p><label>カード名<input id="review-name" placeholder="正式名称を入力" style="display:block;width:100%"></label><label>タイプ<select id="review-type" style="display:block;width:100%"></select></label><label>凸数<select id="review-limit" style="display:block;width:100%"></select></label><div class="flex" style="margin-top:10px"><button id="review-save" class="primary">確認して保存・次へ</button><button id="review-skip">保留・次へ</button></div><p id="review-message" class="hint" aria-live="polite"></p></div></div>`;
  area.insertBefore(panel,area.firstChild);
@@ -144,4 +144,42 @@ $('v05-run').onclick=()=>{
  show();
 })();
 </script>
-</body></html>
+<script>
+/* v0.8: data quality and provenance. Never silently fabricate card stats. */
+(()=>{
+const host=document.getElementById('build');
+const box=document.createElement('div');box.className='panel';
+box.innerHTML=`<h2>Ver.0.8 登録データ品質チェック</h2>
+<p class="hint">所持カードの確認状況と性能値の不足を検査します。未登録・未確認カードは最適編成の計算対象になりません。ここでの数値は登録状況であり、ゲームの評価点や勝率ではありません。</p>
+<div class="flex"><button class="primary" id="v08-check">登録状況を再集計</button><button id="v08-export">確認済みデータをJSON保存</button></div>
+<div id="v08-report" aria-live="polite"></div>
+<h3>性能データの出典メモ</h3><p class="hint">公開攻略情報の値を転記した場合、URL・確認日を記録できます。性能値そのものは自動取得しません。</p>
+<label>出典URL <input id="v08-source" type="url" placeholder="https://..."></label>
+<label>確認日 <input id="v08-date" type="date"></label>
+<button id="v08-save-source">出典を保存</button><div id="v08-source-status" class="hint"></div>`;
+host.appendChild(box);
+const $=id=>document.getElementById(id);
+const storageKey='uma_v08_provenance';
+let meta={};try{meta=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch(e){}
+$('v08-source').value=meta.url||'';$('v08-date').value=meta.date||'';
+$('v08-save-source').onclick=()=>{const url=$('v08-source').value.trim();if(url && !/^https:\/\//i.test(url)){$('v08-source-status').textContent='HTTPSのURLを入力してください。';return;}meta={url,date:$('v08-date').value};localStorage.setItem(storageKey,JSON.stringify(meta));$('v08-source-status').textContent='この端末に出典メモを保存しました。';};
+function report(){
+ const confirmed=RAW.filter(a=>saved[a.id]?.confirmed&&saved[a.id]?.name?.trim()&&TYPES.slice(1).includes(saved[a.id].type));
+ const names=new Map();for(const a of confirmed){const s=saved[a.id];const k=s.name.trim();if(!names.has(k)||Number(s.limit)>Number(names.get(k).limit))names.set(k,s);}
+ const cards=[...names.values()];const keys=['friendship','training','specialty','skill'];
+ const complete=cards.filter(s=>keys.every(k=>s[k]!==null&&s[k]!==undefined&&s[k]!==''&&Number.isFinite(Number(s[k]))));
+ const partial=cards.filter(s=>keys.some(k=>s[k]===null||s[k]===undefined||s[k]===''));
+ const unknown=RAW.length-confirmed.length;
+ const typeCount={};cards.forEach(s=>typeCount[s.type]=(typeCount[s.type]||0)+1);
+ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ $('v08-report').innerHTML=`<div class="result"><b>確認済み画像：${confirmed.length}/${RAW.length}</b><div>未確認・情報不足の画像：${unknown}件</div><div>カード名による重複整理後：${cards.length}種類</div><div>4項目の性能値が入力済み：${complete.length}種類</div><div>性能値が不足：${partial.length}種類</div><div>タイプ別：${Object.entries(typeCount).map(([k,v])=>esc(k)+' '+v).join(' / ')||'登録なし'}</div></div><p class="hint">同名でも異なるサポカがあるため、カード名だけの重複整理は暫定です。固有のカードIDを使った厳密な照合は未実装です。</p>`;
+ return {confirmed:confirmed.length,unique:cards.length,complete:complete.length,partial:partial.length,unknown};
+}
+$('v08-check').onclick=report;
+$('v08-export').onclick=()=>{
+ const obj={format:'uma-navi-v08',exportedAt:new Date().toISOString(),provenance:meta,cards:RAW.filter(a=>saved[a.id]?.confirmed).map(a=>({imageId:a.id,rarity:a.rarity,...saved[a.id]}))};
+ const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='uma-confirmed-v08.json';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);
+};
+report();
+})();
+</script></body></html>
