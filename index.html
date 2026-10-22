@@ -372,4 +372,81 @@ q('v11-import').onclick=()=>{
 };
 })();
 </script>
+
+<script>
+/* v1.2 optional OCR using Tesseract.js, downloaded on demand; results always require review. */
+(()=>{
+const $=id=>document.getElementById(id);
+const types=['スピード','スタミナ','パワー','根性','賢さ'];
+const anchor=$('v11-status');
+if(!anchor)return;
+const guide=document.createElement('div');
+guide.innerHTML='<h3>Ver.1.2 画像から文字を読み取る（実験版）</h3><p class="hint">スクショを選んだ後、各画像の「OCRを試す」を押してください。初回はOCRプログラム・日本語辞書をインターネットから取得するため時間と通信量がかかります。数値の誤認識があるため、必ず画像と照合してから比較に反映してください。画像そのものはOCR用の外部サーバーに送信しません。</p>';
+anchor.parentNode.insertBefore(guide,anchor);
+let scriptPromise;
+function loadOCR(){
+ if(window.Tesseract)return Promise.resolve();
+ if(scriptPromise)return scriptPromise;
+ scriptPromise=new Promise((resolve,reject)=>{
+ const s=document.createElement('script');
+ s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+ s.onload=()=>window.Tesseract?resolve():reject(new Error('OCRライブラリを利用できません'));
+ s.onerror=()=>reject(new Error('OCRライブラリのダウンロードに失敗しました'));
+ document.head.appendChild(s);
+ }).catch(e=>{scriptPromise=null;throw e});
+ return scriptPromise;
+}
+const normalized=t=>t.replace(/[＋﹢]/g,'+').replace(/[％]/g,'%').replace(/[\u3000]/g,' ').replace(/スキル\s*[PＰ][tＴｔ]/gi,'スキルPt');
+function extract(text){
+ const t=normalized(text),found={stats:{},skill:null,fail:null};
+ // Only accept explicitly labelled values; avoid treating random screen numbers as training gains.
+ for(const name of types){
+  const patterns=[
+   new RegExp(name+'\\s*[:：]?\\s*\\+\\s*(\\d{1,3})','i'),
+   new RegExp(name+'\\s*[:：]?\\s*\\n\\s*\\+\\s*(\\d{1,3})','i')
+  ];
+  for(const p of patterns){const m=t.match(p);if(m){found.stats[name]=Number(m[1]);break}}
+ }
+ const skill=t.match(/スキル\s*Pt\s*[:：]?\s*\+\s*(\d{1,3})/i);
+ if(skill)found.skill=Number(skill[1]);
+ const fail=t.match(/失敗率\s*[:：]?\s*(\d{1,3})\s*%/);
+ if(fail&&Number(fail[1])<=100)found.fail=Number(fail[1]);
+ return found;
+}
+async function recognize(i){
+ const note=$('v12-status-'+i),preview=$('v11-preview-'+i);
+ const img=preview?.querySelector('img');
+ if(!img){note.textContent='先にこの練習のスクショを選んでください。';return}
+ const btn=$('v12-run-'+i);btn.disabled=true;
+ let worker;
+ try{
+  note.textContent='OCRを準備しています。初回は少し時間がかかります…';
+  await loadOCR();
+  worker=await window.Tesseract.createWorker('jpn+eng',1,{
+   logger:m=>{if(m.status)note.textContent='OCR: '+m.status+(m.progress!=null?' '+Math.round(m.progress*100)+'%':'')}
+  });
+  const result=await worker.recognize(img.src);
+  const raw=result?.data?.text||'';
+  $('v12-raw-'+i).value=raw;
+  const found=extract(raw);let count=0;
+  types.forEach((name,j)=>{
+   if(found.stats[name]!==undefined){$('v11-stat-'+i+'-'+j).value=found.stats[name];count++}
+  });
+  if(found.skill!==null){$('v11-skill-'+i).value=found.skill;count++}
+  if(found.fail!==null){$('v11-fail-'+i).value=found.fail;count++}
+  note.textContent=`OCR完了：${count}項目を仮入力しました。検出できなかった項目は0のままです。画像と必ず照合してください。`;
+ }catch(e){
+  note.textContent='OCRが利用できませんでした：'+String(e?.message||e)+ '。手入力は引き続き使えます。';
+ }finally{if(worker)try{await worker.terminate()}catch(e){}btn.disabled=false}
+}
+types.forEach((name,i)=>{
+ const card=$('v11-card-'+i);
+ if(!card)return;
+ const wrap=document.createElement('div');
+ wrap.innerHTML=`<button type="button" id="v12-run-${i}">この画像のOCRを試す</button><div class="hint" id="v12-status-${i}">まだOCRを実行していません</div><details><summary>読み取った文字を確認</summary><textarea id="v12-raw-${i}" rows="5" style="width:100%" placeholder="OCR結果がここに表示されます"></textarea></details>`;
+ card.appendChild(wrap);
+ $('v12-run-'+i).onclick=()=>recognize(i);
+});
+})();
+</script>
 </body></html>
