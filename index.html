@@ -37,7 +37,7 @@ const target={短距離:{スピード:3,パワー:2,賢さ:2,根性:1},マイル
 const root=$('build');
 const pane=document.createElement('div');
 pane.className='panel';
-pane.innerHTML=`<h2>Ver.0.6 編成比較エンジン</h2>
+pane.innerHTML=`<h2>Ver.0.7 編成比較エンジン</h2>
 <p class="hint">確認済みカードの組み合わせを比較。ゲーム内部の正確な育成式ではなく、入力した公開性能値とタイプ構成を使う<b>独自の暫定スコア</b>です。勝率・評価点を予測するものではありません。</p>
 <div class="flex"><label>レンタルカード名 <input id="rental-name" placeholder="任意"></label>
 <label>タイプ <select id="rental-type"><option value="">選択しない</option>${TYPES.slice(1).map(t=>`<option>${t}</option>`).join('')}</select></label>
@@ -101,7 +101,7 @@ $('v05-run').onclick=()=>{
 /* v0.6: image similarity suggestions and validated CSV transfer, all local/offline */
 (()=>{
  const area=document.createElement('div');area.className='panel';
- area.innerHTML=`<h2>Ver.0.6 サポカ照合補助</h2><p class="hint">登録済みの画像候補200件について、画像の見た目が近い候補を端末内で比較します。カード名や凸数をAIで確定する機能ではありません。似たカード・別衣装・画像の重複は必ず目視確認してください。</p><button id="v06-sim" class="primary">似た画像を探す</button><div id="v06-simout"></div><h3>カード性能データの一括登録</h3><p class="hint">CSVでカード名・タイプ・凸数・友情ボーナス・練習効果・得意率・スキル適合をまとめて登録。空欄の性能は不明のまま保持します。CSVには画像を含みません。</p><div class="flex"><button id="v06-csv-export">CSVを書き出す</button><label>CSVを読み込む <input id="v06-csv-import" type="file" accept=".csv,text/csv"></label></div><div id="v06-csv-status" class="hint"></div>`;
+ area.innerHTML=`<h2>Ver.0.7 サポカ照合補助</h2><p class="hint">登録済みの画像候補200件について、画像の見た目が近い候補を端末内で比較します。カード名や凸数をAIで確定する機能ではありません。似たカード・別衣装・画像の重複は必ず目視確認してください。</p><button id="v06-sim" class="primary">似た画像を探す</button><div id="v06-simout"></div><h3>カード性能データの一括登録</h3><p class="hint">CSVでカード名・タイプ・凸数・友情ボーナス・練習効果・得意率・スキル適合をまとめて登録。空欄の性能は不明のまま保持します。CSVには画像を含みません。</p><div class="flex"><button id="v06-csv-export">CSVを書き出す</button><label>CSVを読み込む <input id="v06-csv-import" type="file" accept=".csv,text/csv"></label></div><div id="v06-csv-status" class="hint"></div>`;
  document.getElementById('audit').appendChild(area);
  const keys=['id','name','type','limit','confirmed','friendship','training','specialty','skill'];
  const quote=x=>'"'+String(x??'').replace(/"/g,'""')+'"';
@@ -112,4 +112,36 @@ $('v05-run').onclick=()=>{
  const diff=(a,b)=>{let n=0;for(let i=0;i<a.length;i++)if(a[i]!==b[i])n++;return n};
  document.getElementById('v06-sim').onclick=async()=>{const out=document.getElementById('v06-simout');out.textContent='画像を比較中…';const hashes=[];for(let i=0;i<RAW.length;i++)hashes.push(await hash(RAW[i].src));const pairs=[];for(let i=0;i<hashes.length;i++)for(let j=i+1;j<hashes.length;j++)if(hashes[i]&&hashes[j]){const d=diff(hashes[i],hashes[j]);if(d<=7)pairs.push({i,j,d})}pairs.sort((a,b)=>a.d-b.d);const shortlist=pairs.slice(0,30);out.innerHTML='<p class="hint">類似画像候補 '+pairs.length+'組。上位'+shortlist.length+'組を表示（距離が小さいほど似ています）。画像の近さは同一カードの証明ではありません。</p>'+shortlist.map(p=>`<div class="result"><div class="flex"><img style="width:55px;height:70px;object-fit:cover" src="data:image/webp;base64,${RAW[p.i].src}"><img style="width:55px;height:70px;object-fit:cover" src="data:image/webp;base64,${RAW[p.j].src}"><span>${RAW[p.i].id} / ${RAW[p.j].id}（差 ${p.d}）</span></div></div>`).join('');};
 })();
-</script></body></html>
+</script>
+<script>
+/* v0.7 assisted review: human-verified identity, no fictitious OCR */
+(()=>{
+ const area=document.getElementById('cards');
+ const panel=document.createElement('div');panel.className='panel';
+ panel.innerHTML=`<h2>Ver.0.7 サポカ照合アシスタント</h2><p class="hint">8枚のスクショから切り出した画像を1件ずつ拡大して確認。カード名と凸数の自動判定はまだありません。確定したデータは編成比較にそのまま反映されます。</p>
+ <div class="flex"><button id="review-prev">前へ</button><button id="review-next">次へ</button><button id="review-unchecked">未確認へ移動</button><span id="review-count"></span></div>
+ <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:12px"><img id="review-image" alt="カード画像" style="width:150px;max-width:45%;border-radius:10px"><div style="flex:1;min-width:175px"><p id="review-location" class="hint"></p><label>カード名<input id="review-name" placeholder="正式名称を入力" style="display:block;width:100%"></label><label>タイプ<select id="review-type" style="display:block;width:100%"></select></label><label>凸数<select id="review-limit" style="display:block;width:100%"></select></label><div class="flex" style="margin-top:10px"><button id="review-save" class="primary">確認して保存・次へ</button><button id="review-skip">保留・次へ</button></div><p id="review-message" class="hint" aria-live="polite"></p></div></div>`;
+ area.insertBefore(panel,area.firstChild);
+ const el=id=>document.getElementById(id);
+ el('review-type').innerHTML=TYPES.map(t=>`<option>${escapeHTML(t)}</option>`).join('');
+ el('review-limit').innerHTML=[0,1,2,3,4].map(n=>`<option value="${n}">${n}凸</option>`).join('');
+ let i=0;
+ function show(){const a=RAW[i],v=saved[a.id]||{};
+ el('review-image').src='data:image/webp;base64,'+a.src;
+ el('review-location').textContent=`画像${a.screen}・${a.row}行${a.col}列 / ${a.rarity}（推定）`;
+ el('review-name').value=v.name||'';el('review-type').value=v.type||'未確認';el('review-limit').value=String(v.limit??0);
+ el('review-count').textContent=`${i+1}/${RAW.length}・確認済み${RAW.filter(x=>saved[x.id]?.confirmed).length}件`;
+ el('review-message').textContent=v.confirmed?'登録済み（編集できます）':'未確認';
+ }
+ function advance(n){i=(i+n+RAW.length)%RAW.length;show()}
+ el('review-prev').onclick=()=>advance(-1);el('review-next').onclick=()=>advance(1);el('review-skip').onclick=()=>advance(1);
+ el('review-unchecked').onclick=()=>{let j=i;do{j=(j+1)%RAW.length;if(!saved[RAW[j].id]?.confirmed){i=j;show();return}}while(j!==i);el('review-message').textContent='すべて確認済みです'};
+ el('review-save').onclick=()=>{
+ const a=RAW[i],name=el('review-name').value.trim(),type=el('review-type').value,limit=Number(el('review-limit').value);
+ if(!name||type==='未確認'){el('review-message').textContent='カード名とタイプを入力してから保存してください';return}
+ saved[a.id]={...(saved[a.id]||{}),name,type,limit,confirmed:true};save();cards();advance(1);
+ };
+ show();
+})();
+</script>
+</body></html>
