@@ -263,4 +263,58 @@ el('v09-run').onclick=()=>{
 };
 })();
 </script>
+
+<script>
+/* v1.0: user-entered turn decision support, not OCR or a game-accurate simulator */
+(()=>{
+const E=id=>document.getElementById(id);
+const panel=document.createElement('div');panel.className='panel';
+panel.innerHTML=`<h2>Ver.1.0 毎ターン行動比較・詳細版</h2>
+<p class="hint">ゲーム画面に表示された数値を入力し、練習・休息・お出かけ・レースを比較します。数値はゲームの公式計算式ではなく、ユーザーが調整できる判断モデルです。</p>
+<div class="flex"><label>現在体力 <input id="v10-energy" type="number" min="0" max="100" value="65"></label>
+<label>最大体力 <input id="v10-max" type="number" min="1" max="150" value="100"></label>
+<label>やる気 <select id="v10-mood"><option value="1.1">絶好調</option><option value="1.05">好調</option><option value="1" selected>普通</option><option value=".95">不調</option><option value=".9">絶不調</option></select></label>
+<label>残りターン <input id="v10-left" type="number" min="1" max="100" value="20"></label></div>
+<p class="hint">各練習の「上昇量」は5ステータスの合計値を入力。スキルPtは別入力。体力消費と失敗率は画面表示の値を使ってください。</p>
+<div style="overflow-x:auto"><table style="width:100%;min-width:460px"><thead><tr><th>行動</th><th>ステ合計</th><th>スキルPt</th><th>体力消費</th><th>失敗率%</th></tr></thead><tbody id="v10-rows"></tbody></table></div>
+<div class="flex"><label>休息で回復する体力 <input id="v10-rest" type="number" min="0" max="100" value="50"></label>
+<label>お出かけ回復量 <input id="v10-outing" type="number" min="0" max="100" value="25"></label>
+<label>レース獲得スキルPt <input id="v10-race" type="number" min="0" max="300" value="35"></label>
+<label>失敗時の追加損失（参考点） <input id="v10-failcost" type="number" min="0" max="300" value="35"></label></div>
+<div class="flex"><label>ステ1ptの重み <input id="v10-statweight" type="number" min="0" max="10" step=".1" value="1"></label>
+<label>スキルPtの重み <input id="v10-skillweight" type="number" min="0" max="10" step=".1" value=".6"></label>
+<label>体力1ptの価値 <input id="v10-energyweight" type="number" min="0" max="10" step=".1" value=".65"></label></div>
+<button class="primary" id="v10-judge">全行動を比較</button><button id="v10-save">入力値を保存</button>
+<div id="v10-out"></div>`;
+E('turn').appendChild(panel);
+const kinds=['スピード','スタミナ','パワー','根性','賢さ'];
+const rows=E('v10-rows');
+rows.innerHTML=kinds.map((k,i)=>`<tr><td>${k}</td>${[['stat',30],['skill',8],['cost',20],['fail',0]].map(([field,v])=>`<td><input style="width:70px" type="number" min="0" max="999" id="v10-${field}-${i}" value="${v}"></td>`).join('')}</tr>`).join('');
+const ids=['energy','max','mood','left','rest','outing','race','failcost','statweight','skillweight','energyweight',...kinds.flatMap((_,i)=>['stat','skill','cost','fail'].map(k=>k+'-'+i))];
+try{const saved=JSON.parse(localStorage.getItem('uma-v10-turn')||'{}');for(const id of ids){if(saved[id]!==undefined&&E('v10-'+id))E('v10-'+id).value=saved[id]}}catch(e){}
+E('v10-save').onclick=()=>{const obj={};ids.forEach(id=>obj[id]=E('v10-'+id).value);try{localStorage.setItem('uma-v10-turn',JSON.stringify(obj));E('v10-out').textContent='入力値をこの端末に保存しました。'}catch(e){E('v10-out').textContent='保存できませんでした。端末の空き容量を確認してください。'}};
+E('v10-judge').onclick=()=>{
+const N=id=>Number(E('v10-'+id).value),energy=N('energy'),max=N('max'),left=N('left');
+if(!Number.isFinite(energy)||!Number.isFinite(max)||max<=0||energy<0||energy>max||left<1||left>100){E('v10-out').textContent='体力・最大体力・残りターンの入力を確認してください。';return}
+const ew=N('energyweight'),sw=N('statweight'),kw=N('skillweight'),failcost=N('failcost');
+const options=kinds.map((name,i)=>{
+const stat=N('stat-'+i),skill=N('skill-'+i),cost=N('cost-'+i),fail=N('fail-'+i);
+if([stat,skill,cost,fail].some(x=>!Number.isFinite(x)||x<0)||fail>100)return null;
+const p=Math.max(0,Math.min(1,fail/100));
+const gained=Math.min(max,Math.max(0,energy-cost))-energy;
+const success=stat*sw+skill*kw+gained*ew;
+const score=(1-p)*success+p*(-failcost);
+return {name,score,reason:`成功時の上昇価値 ${(stat*sw+skill*kw).toFixed(1)}、体力変化 ${gained.toFixed(0)}、失敗率 ${fail}%`};
+});
+if(options.some(x=>!x)){E('v10-out').textContent='練習数値に不正な入力があります。';return}
+const recover=(n)=>Math.max(0,Math.min(max,energy+n)-energy);
+options.push({name:'休息',score:recover(N('rest'))*ew,reason:`体力回復 +${recover(N('rest'))}`});
+options.push({name:'お出かけ',score:recover(N('outing'))*ew,reason:`体力回復 +${recover(N('outing'))}。やる気上昇などの固有効果は未計算`});
+options.push({name:'レース',score:N('race')*kw,reason:`スキルPt ${N('race')}。ステータス・体力消費・シナリオ効果は未計算`});
+options.sort((a,b)=>b.score-a.score);
+E('v10-out').innerHTML='<h3>参考順位（このターンのみ）</h3>'+options.map((o,i)=>`<div class="result"><b>${i+1}位 ${o.name}：${o.score.toFixed(1)}点</b><div class="hint">${o.reason}</div></div>`).join('')+
+'<div class="warn">判断点は独自の比較指標で、実際の評価点・勝率・最終ステータスではありません。レース目標、固有ギミック、練習の複数ステータス内訳、やる気補正、友情トレーニング等は入力した値以外は未反映です。失敗時の損失は仮定値です。</div>';
+};
+})();
+</script>
 </body></html>
