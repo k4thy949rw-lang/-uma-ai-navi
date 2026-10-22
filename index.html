@@ -317,4 +317,59 @@ E('v10-out').innerHTML='<h3>参考順位（このターンのみ）</h3>'+option
 };
 })();
 </script>
+
+<script>
+/* v1.1 screenshot assistant: upload, review and import. Experimental native TextDetector only when supported. */
+(()=>{
+const q=id=>document.getElementById(id);
+const names=['スピード','スタミナ','パワー','根性','賢さ'];
+const panel=document.createElement('div');panel.className='panel';
+panel.innerHTML=`<h2>Ver.1.1 スクショ読み取りアシスタント</h2>
+<p class="hint">5種類の練習スクショを選び、画像と入力欄を見比べて数値を確認します。ブラウザがTextDetectorに対応する場合のみ文字の自動抽出を試します。非対応の場合は画像を見ながら手入力してください。画像は端末内で処理し、サーバーへ送信しません。</p>
+<label>練習画面のスクショを選択（最大5枚）<input type="file" id="v11-files" accept="image/*" multiple></label>
+<div id="v11-status" class="hint"></div><div id="v11-cards"></div>
+<button class="primary" id="v11-import">確認した値を毎ターン比較に反映</button><div id="v11-result"></div>`;
+q('turn').appendChild(panel);
+const state=names.map(()=>({stat:[0,0,0,0,0],skill:0,fail:0,energy:null,filename:'',url:null,detected:''}));
+const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;':'&quot;',"'":'&#39;'}[c]));
+const row=(i)=>`<div class="result" id="v11-card-${i}"><h3>${names[i]}</h3><div id="v11-preview-${i}"></div><label>画像 <input type="file" accept="image/*" id="v11-file-${i}"></label><div class="flex">${names.map((n,j)=>`<label>${n} +<input id="v11-stat-${i}-${j}" type="number" min="0" max="999" value="0" style="width:65px"></label>`).join('')}</div><div class="flex"><label>スキルPt +<input id="v11-skill-${i}" type="number" min="0" max="999" value="0"></label><label>失敗率 %<input id="v11-fail-${i}" type="number" min="0" max="100" value="0"></label><label>体力（現在値）<input id="v11-energy-${i}" type="number" min="0" max="150" placeholder="未確認"></label></div><div class="hint" id="v11-note-${i}">画像を選択してください</div></div>`;
+q('v11-cards').innerHTML=names.map((_,i)=>row(i)).join('');
+async function assign(file,i){
+ if(!file||!file.type.startsWith('image/'))return;
+ const st=state[i];if(st.url)URL.revokeObjectURL(st.url);st.url=URL.createObjectURL(file);st.filename=file.name;
+ q('v11-preview-'+i).innerHTML=`<img alt="確認用スクリーンショット" style="display:block;max-height:330px;max-width:100%;object-fit:contain;border-radius:8px" src="${st.url}">`;
+ const note=q('v11-note-'+i);note.textContent='画像を表示しました。数値を確認・入力してください。';
+ if(typeof window.TextDetector==='function'){
+  try{
+   const img=new Image();img.src=st.url;await img.decode();
+   const detector=new window.TextDetector();
+   const hits=await detector.detect(img);
+   const text=hits.map(h=>h.rawValue).join(' / ');
+   st.detected=text;
+   note.textContent='実験的な文字抽出結果（自動入力はしません）: '+(text||'検出なし')+'。画像と照合して数値を入力してください。';
+  }catch(e){note.textContent='自動抽出できませんでした。画像を見ながら入力してください。'}
+ }else{note.textContent='このブラウザは文字自動抽出に非対応です。画像を見ながら入力してください。'}
+}
+names.forEach((_,i)=>q('v11-file-'+i).onchange=e=>assign(e.target.files[0],i));
+q('v11-files').onchange=async e=>{
+ const files=[...e.target.files].slice(0,5);
+ q('v11-status').textContent=`${files.length}枚選択しました。各画像がどの練習か確認してください。初期割当はスピード→スタミナ→パワー→根性→賢さです。`;
+ for(let i=0;i<files.length;i++)await assign(files[i],i);
+};
+q('v11-import').onclick=()=>{
+ let ok=true;
+ for(let i=0;i<5;i++){
+  const vals=names.map((_,j)=>Number(q(`v11-stat-${i}-${j}`).value));
+  const skill=Number(q(`v11-skill-${i}`).value),fail=Number(q(`v11-fail-${i}`).value);
+  if([...vals,skill,fail].some(n=>!Number.isFinite(n)||n<0)||fail>100){ok=false;break}
+  const total=vals.reduce((a,b)=>a+b,0);
+  q(`v10-stat-${i}`).value=total;q(`v10-skill-${i}`).value=skill;q(`v10-fail-${i}`).value=fail;
+ }
+ if(!ok){q('v11-result').textContent='入力値を確認してください。';return}
+ const e=names.map((_,i)=>q(`v11-energy-${i}`).value).find(v=>v!=='');
+ if(e!==undefined&&Number.isFinite(Number(e)))q('v10-energy').value=e;
+ q('v11-result').textContent='毎ターン比較に反映しました。上の「全行動を比較」を押してください。体力消費は画像から取得できないため、毎ターン比較側で別途入力してください。';
+};
+})();
+</script>
 </body></html>
