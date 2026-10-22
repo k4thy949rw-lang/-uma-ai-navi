@@ -182,4 +182,85 @@ $('v08-export').onclick=()=>{
 };
 report();
 })();
-</script></body></html>
+</script>
+<script>
+/* v0.9: explainable scenario-specific planner. User-supplied priorities, not official formulas. */
+(()=>{
+const el=id=>document.getElementById(id);
+const clean=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const types=['スピード','スタミナ','パワー','根性','賢さ'];
+const root=el('build'),panel=document.createElement('div');panel.className='panel';
+panel.innerHTML=`<h2>Ver.0.9 シナリオ別・根拠つき編成比較</h2>
+<p class="hint">シナリオを選び、重視するサポカタイプの優先度を調整します。初期値はゲーム公式の計算式ではない<strong>仮の比較条件</strong>です。自分で入力した公開性能値だけを性能比較に利用します。</p>
+<div class="flex"><label>比較用シナリオ <select id="v09-scenario"></select></label><label>目的 <select id="v09-goal"><option value="balanced">評価点・実戦の両立</option><option value="rating">評価点寄り</option><option value="race">実戦寄り</option></select></label></div>
+<div id="v09-priorities" class="flex"></div>
+<div class="flex"><label>フレンド枠 <select id="v09-rental"><option value="5">確保する（手持ち5枚）</option><option value="6">使わない（手持ち6枚）</option></select></label>
+<label>性能未入力の扱い <select id="v09-unknown"><option value="neutral">未入力は不明として扱う</option><option value="penalty">データ不足を減点する</option></select></label></div>
+<div class="flex"><button class="primary" id="v09-run">条件を反映して比較</button><button id="v09-reset">優先度を初期化</button></div>
+<div id="v09-output"></div>`;
+root.appendChild(panel);
+const presets={
+'URAファイナルズ':[3,1,2,1,2],'アオハル杯':[3,2,2,1,2],
+'Make a new track!!':[3,2,2,2,2],'グランドライブ':[3,1,2,1,3],
+'グランドマスターズ':[3,2,2,2,2],'プロジェクトL’Arc':[3,2,2,1,2],
+'U.A.F. Ready GO!':[3,2,2,2,2],'収穫ッ！満腹ッ！大豊食祭':[3,1,2,2,2],
+'走れ！メカウマ娘':[3,2,2,1,2],'The Twinkle Legends':[3,2,2,2,2],
+'無人島へようこそ':[3,2,2,2,2],'その他・最新（ルール未登録）':[3,2,2,2,2]};
+const selector=el('v09-scenario');Object.keys(presets).forEach(k=>selector.add(new Option(k,k)));
+selector.value=el('scenario').value||Object.keys(presets)[0];
+const priority=el('v09-priorities');
+function key(){return 'uma_v09_weights_'+selector.value}
+function weights(){try{const v=JSON.parse(localStorage.getItem(key()));if(Array.isArray(v)&&v.length===5&&v.every(n=>Number.isFinite(n)&&n>=0&&n<=5))return v}catch(e){}return presets[selector.value].slice()}
+function draw(){priority.innerHTML=types.map((t,i)=>`<label>${t}<select id="v09-w${i}">${[0,1,2,3,4,5].map(n=>`<option value="${n}" ${weights()[i]===n?'selected':''}>${n}</option>`).join('')}</select></label>`).join('')}
+selector.onchange=draw;draw();
+el('v09-reset').onclick=()=>{localStorage.removeItem(key());draw()};
+function metrics(s){
+ const fields=['friendship','training','specialty','skill'];
+ let available=0,score=0;
+ const mult=[.018,.09,.011,.65];
+ fields.forEach((f,i)=>{const n=s[f];if(n!==''&&n!=null&&Number.isFinite(Number(n))){available++;score+=Math.max(0,Number(n))*mult[i]}});
+ return {available,score};
+}
+el('v09-run').onclick=()=>{
+ const w=types.map((_,i)=>Number(el('v09-w'+i).value));
+ localStorage.setItem(key(),JSON.stringify(w));
+ const count=Number(el('v09-rental').value),goal=el('v09-goal').value,unknown=el('v09-unknown').value;
+ const unique=new Map();
+ RAW.forEach(a=>{const s=saved[a.id];if(!s?.confirmed||!s.name?.trim()||!types.includes(s.type))return;
+ const k=s.name.trim()+'|'+s.type;
+ if(!unique.has(k)||Number(s.limit)>Number(unique.get(k).s.limit))unique.set(k,{s,a})});
+ const cards=[...unique.values()];
+ if(cards.length<count){el('v09-output').innerHTML=`<div class="warn">確認済みカードが${cards.length}枚です。${count}枚以上登録してから実行してください。</div>`;return}
+ // Pre-rank the pool, then beam-search candidate combinations. This is intentionally approximate.
+ function grade(arr){
+  let score=0,coverage=0;const counts={};
+  for(const {s} of arr){
+   const t=s.type,i=types.indexOf(t);counts[t]=(counts[t]||0)+1;
+   const m=metrics(s);coverage+=m.available;
+   score+=w[i]*2.7+Number(s.limit||0)*.16+m.score;
+   if(goal==='rating'&&(t==='スピード'||t==='根性'))score+=.6;
+   if(goal==='race'&&(t==='賢さ'||t==='パワー'))score+=.6;
+   if(unknown==='penalty')score-=(4-m.available)*.9;
+   score-=Math.max(0,counts[t]-2)*2.6;
+  }
+  return {score,coverage};
+ }
+ cards.sort((a,b)=>grade([b]).score-grade([a]).score);
+ const pool=cards.slice(0,55);
+ let beam=[{arr:[],last:-1,score:0}];
+ for(let depth=0;depth<count;depth++){
+  const next=[];
+  for(const b of beam)for(let i=b.last+1;i<pool.length;i++){
+   const arr=b.arr.concat(pool[i]);next.push({arr,last:i,score:grade(arr).score});
+  }
+  next.sort((a,b)=>b.score-a.score);
+  beam=next.slice(0,100);
+ }
+ const best=beam.sort((a,b)=>b.score-a.score).slice(0,3);
+ el('v09-output').innerHTML=`<p class="hint">対象 ${cards.length}種類／探索候補 ${pool.length}種類。上位候補を残す近似探索。シナリオ「${clean(selector.value)}」の優先度は利用者設定であり、固有ギミックは未計算。</p>`+
+ best.map((b,i)=>`<div class="result"><b>候補${i+1}：比較指標 ${b.score.toFixed(1)}</b><p class="small">性能入力 ${grade(b.arr).coverage}/${count*4}項目</p>${b.arr.map(c=>`<div>${clean(c.s.name)}｜${clean(c.s.type)}｜${Number(c.s.limit)||0}凸｜性能入力 ${metrics(c.s).available}/4</div>`).join('')}</div>`).join('')+
+ `<div class="warn">これは公式評価点・勝率・ステータス期待値ではありません。距離・脚質・所持スキルの正確な効果、各シナリオの専用式、レンタルカードの具体的性能は未反映です。性能の出典と更新日を確認して利用してください。</div>`;
+};
+})();
+</script>
+</body></html>
