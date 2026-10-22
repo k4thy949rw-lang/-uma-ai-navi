@@ -1,0 +1,25 @@
+{
+  "name": "ウマ娘 AI育成ナビ",
+  "short_name": "ウマ娘AIナビ",
+  "description": "サポカ管理・編成提案・育成判断（試作版）",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1423",
+  "theme_color": "#111d2f",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
