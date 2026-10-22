@@ -544,7 +544,65 @@ for(let i=0;i<5;i++){
  const div=document.createElement('div');
  div.innerHTML='<button type="button" id="v14-button-'+i+'">オレンジ数字をOCR（Ver.1.4）</button><div class="hint" id="v14-message-'+i+'">スクショを選んでください</div><details open><summary>OCR候補と切り出し画像</summary><div id="v14-results-'+i+'"></div></details>';
  card.appendChild(div);$('v14-button-'+i).onclick=()=>run(i);
+ window.umaV14Run=run;
 }
+})();
+</script>
+
+<script>
+/* v1.5: bulk OCR and explicit review before importing to decision engine */
+(()=>{
+const $=id=>document.getElementById(id);
+const host=$('v11-cards');
+if(!host)return;
+const p=document.createElement('div');p.className='panel';
+p.innerHTML=`<h2>Ver.1.5 5種類まとめてOCR</h2>
+<p class="hint">各練習に対応するスクショを選択した後、一括OCRを実行します。候補値は自動採用しません。各画像の切り出し結果を見て正しい値だけ「採用」し、最後に毎ターン比較へ反映してください。</p>
+<button class="primary" id="v15-bulk">5種類を順番にOCR</button>
+<button id="v15-review">入力内容を確認</button>
+<button id="v15-import">確認済みの値を比較に反映</button>
+<div id="v15-status" class="hint"></div><div id="v15-summary"></div>`;
+host.parentNode.insertBefore(p,host);
+const names=['スピード','スタミナ','パワー','根性','賢さ'];
+const fields=['スピード','スタミナ','パワー','根性','賢さ'];
+let running=false;
+function review(){
+ let selected=0;
+ const parts=names.map((name,i)=>{
+  const image=$('v11-preview-'+i)?.querySelector('img');
+  if(image)selected++;
+  const values=fields.map((_,j)=>Number($(`v11-stat-${i}-${j}`)?.value||0));
+  const skill=Number($(`v11-skill-${i}`)?.value||0);
+  const fail=Number($(`v11-fail-${i}`)?.value||0);
+  const ok=values.concat([skill,fail]).every(x=>Number.isFinite(x)&&x>=0&&x<=999)&&fail<=100;
+  return `<tr><td>${name}${image?'':'（画像なし）'}</td><td>${values.join(' / ')}</td><td>${skill}</td><td>${fail}%</td><td>${ok?'確認待ち':'入力エラー'}</td></tr>`;
+ });
+ $('v15-summary').innerHTML=`<p class="hint">画像 ${selected}/5枚。ステータスはスピード／スタミナ／パワー／根性／賢さの順。0も未認識の可能性があるため、画像で確認してください。</p><div style="overflow-x:auto"><table><thead><tr><th>練習</th><th>ステ上昇</th><th>Pt</th><th>失敗率</th><th>状態</th></tr></thead><tbody>${parts.join('')}</tbody></table></div>`;
+ return selected;
+}
+$('v15-bulk').onclick=async()=>{
+ if(running)return;
+ const missing=names.filter((_,i)=>!$('v11-preview-'+i)?.querySelector('img'));
+ if(missing.length){$('v15-status').textContent='先に画像を5枚選択してください。未選択：'+missing.join('、');return}
+ if(typeof window.umaV14Run!=='function'){$('v15-status').textContent='Ver.1.4のOCRが読み込めません。画面を更新してください。';return}
+ running=true;$('v15-bulk').disabled=true;
+ try{
+  for(let i=0;i<5;i++){
+   $('v15-status').textContent=`${i+1}/5：${names[i]}のOCRを実行中…`;
+   await window.umaV14Run(i);
+  }
+  $('v15-status').textContent='5枚のOCR処理が終了しました。各カードの候補を画像と照合して「採用」してください。';
+  review();
+ }finally{running=false;$('v15-bulk').disabled=false}
+};
+$('v15-review').onclick=()=>{review();$('v15-status').textContent='確認表を更新しました。0の値も画像と照合してください。'};
+$('v15-import').onclick=()=>{
+ const count=review();
+ if(count!==5){$('v15-status').textContent='画像が5枚そろっていません。比較への反映は保留しました。';return}
+ if(!window.confirm('5種類の数値を画像と照合して確認しましたか？ 未認識の0も含めて反映します。'))return;
+ $('v11-import')?.click();
+ $('v15-status').textContent='入力値を毎ターン比較に反映しました。「全行動を比較」を押してください。体力消費など未取得項目は別途入力が必要です。';
+};
 })();
 </script>
 </body></html>
